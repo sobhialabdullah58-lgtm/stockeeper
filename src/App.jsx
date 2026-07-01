@@ -74,7 +74,7 @@ function Dashboard({ onNavigate, faultyCount, basicTotal, warehouseTotal, theate
         </div>
       </header>
       <div style={mainStyles.cardsGrid}>
-        <div style={mainStyles.card} onClick={() => onNavigate('basicStore')}><div style={mainStyles.cardIcon}>🏢</div><h3 style={mainStyles.cardTitle}>Basic Store</h3><p style={mainStyles.cardNumber}>{basicTotal}</p><p style={mainStyles.cardSub}>Total Items</p></div>
+        <div style={mainStyles.card} onClick={() => onNavigate('basicStore')}><div style={mainStyles.cardIcon}>🏢</div><h3 style={mainStyles.cardTitle}>KAS INVENTORY</h3><p style={mainStyles.cardNumber}>{basicTotal}</p><p style={mainStyles.cardSub}>Total Items</p></div>
         <div style={mainStyles.card} onClick={() => onNavigate('warehouse')}><div style={mainStyles.cardIcon}>🏭</div><h3 style={mainStyles.cardTitle}>Warehouse</h3><p style={mainStyles.cardNumber}>{warehouseTotal}</p><p style={mainStyles.cardSub}>Available Items</p></div>
         <div style={mainStyles.card} onClick={() => onNavigate('theaters')}><div style={mainStyles.cardIcon}>🎭</div><h3 style={mainStyles.cardTitle}>Theaters</h3><p style={mainStyles.cardNumber}>{theatersCount}</p><p style={mainStyles.cardSub}>Active Theaters</p></div>
         <div style={{...mainStyles.card, borderColor: faultyCount > 0 ? '#e74c3c' : '#27ae60'}} onClick={() => onNavigate('repair')}><div style={mainStyles.cardIcon}>🔧</div><h3 style={mainStyles.cardTitle}>Needs Repair</h3><p style={{...mainStyles.cardNumber, color: faultyCount > 0 ? '#e74c3c' : '#27ae60'}}>{faultyCount}</p><p style={mainStyles.cardSub}>Faulty Items</p></div>
@@ -83,64 +83,133 @@ function Dashboard({ onNavigate, faultyCount, basicTotal, warehouseTotal, theate
   );
 }
 
-// ========== نافذة المخازن العامة ==========
+// ========== نافذة المخازن العامة (KAS INVENTORY / Warehouse) ==========
 function InventoryView({ title, icon, type, onBack }) {
-  const [categories, setCategories] = useState([]);
-  const [newCatName, setNewCatName] = useState('');
+  const [mainCategories, setMainCategories] = useState([]);
+  const [newMainCatName, setNewMainCatName] = useState('');
+  const [newCatName, setNewCatName] = useState({});
   const [newItemName, setNewItemName] = useState({});
   const [newItemQty, setNewItemQty] = useState({});
+  const [expandedMainCat, setExpandedMainCat] = useState(null);
   const [expandedCat, setExpandedCat] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [editQty, setEditQty] = useState('');
+  const [renamingMainCat, setRenamingMainCat] = useState(null);
+  const [renameMainCatName, setRenameMainCatName] = useState('');
+  const [renamingCat, setRenamingCat] = useState(null);
+  const [renameCatName, setRenameCatName] = useState('');
 
   useEffect(() => { fetchData(); }, [type]);
 
   const fetchData = async () => {
-    const { data: cats } = await supabase.from('categories').select('id, name, items(id, name, qty, status)').eq('type', type).order('id');
-    setCategories(cats || []);
+    const { data: mainCats } = await supabase
+      .from('main_categories')
+      .select('id, name, categories(id, name, items(id, name, qty, status))')
+      .eq('type', type)
+      .order('id');
+    if (mainCats) setMainCategories(mainCats);
   };
 
-  const addCategory = async () => {
-    const name = newCatName.trim();
+  // إضافة Main Category
+  const addMainCategory = async () => {
+    const name = newMainCatName.trim();
     if (!name) return;
-    const { data, error } = await supabase.from('categories').insert({ name, type }).select('id, name').single();
-    if (!error && data) { setCategories([...categories, { id: data.id, name: data.name, items: [] }]); setNewCatName(''); }
+    const { data, error } = await supabase.from('main_categories').insert({ name, type }).select('id, name').single();
+    if (!error && data) {
+      setMainCategories([...mainCategories, { id: data.id, name: data.name, categories: [] }]);
+      setNewMainCatName('');
+    }
   };
 
-  const deleteCategory = async (catId) => { await supabase.from('categories').delete().eq('id', catId); setCategories(categories.filter(c => c.id !== catId)); };
+  // حذف Main Category
+  const deleteMainCategory = async (id) => {
+    await supabase.from('main_categories').delete().eq('id', id);
+    setMainCategories(mainCategories.filter(mc => mc.id !== id));
+  };
 
-  const addItem = async (catId) => {
-    const name = newItemName[catId];
-    const qty = parseInt(newItemQty[catId]);
+  // إعادة تسمية Main Category
+  const startRenameMainCat = (id, currentName) => { setRenamingMainCat(id); setRenameMainCatName(currentName); };
+  const saveRenameMainCat = async (id) => {
+    if (!renameMainCatName.trim()) return;
+    await supabase.from('main_categories').update({ name: renameMainCatName }).eq('id', id);
+    setMainCategories(mainCategories.map(mc => mc.id === id ? { ...mc, name: renameMainCatName } : mc));
+    setRenamingMainCat(null);
+    setRenameMainCatName('');
+  };
+
+  // إضافة فئة داخل Main Category
+  const addCategory = async (mainCatId) => {
+    const name = newCatName[mainCatId]?.trim();
+    if (!name) return;
+    const { data, error } = await supabase.from('categories').insert({ main_category_id: mainCatId, name, type }).select('id, name').single();
+    if (!error && data) {
+      setMainCategories(mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: [...mc.categories, { id: data.id, name: data.name, items: [] }] } : mc));
+      setNewCatName({ ...newCatName, [mainCatId]: '' });
+    }
+  };
+
+  // حذف فئة
+  const deleteCategory = async (mainCatId, catId) => {
+    await supabase.from('categories').delete().eq('id', catId);
+    setMainCategories(mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.filter(c => c.id !== catId) } : mc));
+  };
+
+  // إعادة تسمية فئة
+  const startRenameCat = (mainCatId, catId, currentName) => { setRenamingCat(`${mainCatId}-${catId}`); setRenameCatName(currentName); };
+  const saveRenameCat = async (mainCatId, catId) => {
+    if (!renameCatName.trim()) return;
+    await supabase.from('categories').update({ name: renameCatName }).eq('id', catId);
+    setMainCategories(mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, name: renameCatName } : c) } : mc));
+    setRenamingCat(null);
+    setRenameCatName('');
+  };
+
+  // إضافة غرض
+  const addItem = async (mainCatId, catId) => {
+    const name = newItemName[`${mainCatId}-${catId}`];
+    const qty = parseInt(newItemQty[`${mainCatId}-${catId}`]);
     if (!name || !qty || qty < 1) return;
     const { data, error } = await supabase.from('items').insert({ category_id: catId, name, qty, status: 'good' }).select('id, name, qty, status').single();
-    if (!error && data) { setCategories(categories.map(c => c.id === catId ? { ...c, items: [...c.items, data] } : c)); setNewItemName({ ...newItemName, [catId]: '' }); setNewItemQty({ ...newItemQty, [catId]: '' }); }
+    if (!error && data) {
+      setMainCategories(mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: [...c.items, data] } : c) } : mc));
+      const key = `${mainCatId}-${catId}`;
+      setNewItemName({ ...newItemName, [key]: '' });
+      setNewItemQty({ ...newItemQty, [key]: '' });
+    }
   };
 
-  const deleteItem = async (catId, itemId) => { await supabase.from('items').delete().eq('id', itemId); setCategories(categories.map(c => c.id === catId ? { ...c, items: c.items.filter(i => i.id !== itemId) } : c)); };
+  // حذف غرض
+  const deleteItem = async (mainCatId, catId, itemId) => {
+    await supabase.from('items').delete().eq('id', itemId);
+    setMainCategories(mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: c.items.filter(i => i.id !== itemId) } : c) } : mc));
+  };
 
-  const toggleStatus = async (catId, itemId, currentStatus) => {
+  // تغيير حالة غرض
+  const toggleStatus = async (mainCatId, catId, itemId, currentStatus) => {
     const newStatus = currentStatus === 'good' ? 'faulty' : 'good';
     await supabase.from('items').update({ status: newStatus }).eq('id', itemId);
-    setCategories(categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, status: newStatus } : i) } : c));
+    setMainCategories(mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, status: newStatus } : i) } : c) } : mc));
   };
 
-  const startEditItem = (catId, itemId, currentQty) => { setEditingItem({ catId, itemId }); setEditQty(currentQty.toString()); };
-
-  const saveEditItem = async (catId, itemId) => {
+  // تعديل كمية غرض
+  const startEditItem = (mainCatId, catId, itemId, currentQty) => { setEditingItem({ mainCatId, catId, itemId }); setEditQty(currentQty.toString()); };
+  const saveEditItem = async (mainCatId, catId, itemId) => {
     const newQty = parseInt(editQty);
     if (isNaN(newQty) || newQty < 0) return;
     await supabase.from('items').update({ qty: newQty }).eq('id', itemId);
-    setCategories(categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, qty: newQty } : i) } : c));
+    setMainCategories(mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, qty: newQty } : i) } : c) } : mc));
     setEditingItem(null); setEditQty('');
   };
 
   const handleExportPDF = () => {
     let htmlContent = '';
-    categories.forEach(cat => {
-      htmlContent += `<h2>${cat.name} (${cat.items.length} items)</h2><table><tr><th>Name</th><th>Qty</th><th>Status</th></tr>`;
-      cat.items.forEach(item => { htmlContent += `<tr><td>${item.name}</td><td>${item.qty}</td><td class="${item.status === 'good' ? 'good' : 'faulty'}">${item.status === 'good' ? 'Good' : 'Faulty'}</td></tr>`; });
-      htmlContent += '</table>';
+    mainCategories.forEach(mc => {
+      htmlContent += `<h1>${mc.name}</h1>`;
+      mc.categories.forEach(cat => {
+        htmlContent += `<h2>${cat.name} (${cat.items.length} items)</h2><table><tr><th>Name</th><th>Qty</th><th>Status</th></tr>`;
+        cat.items.forEach(item => { htmlContent += `<tr><td>${item.name}</td><td>${item.qty}</td><td class="${item.status === 'good' ? 'good' : 'faulty'}">${item.status === 'good' ? 'Good' : 'Faulty'}</td></tr>`; });
+        htmlContent += '</table>';
+      });
     });
     exportToPDF(title, htmlContent);
   };
@@ -149,32 +218,86 @@ function InventoryView({ title, icon, type, onBack }) {
     <div style={modalStyles.overlay}>
       <div style={modalStyles.container}>
         <div style={modalStyles.header}><button style={modalStyles.backBtn} onClick={onBack}>← Back</button><h2 style={modalStyles.title}>{icon} {title}</h2><button style={modalStyles.pdfBtn} onClick={handleExportPDF}>📄 PDF</button></div>
-        <div style={modalStyles.addRow}><input style={modalStyles.input} placeholder="New category name..." value={newCatName} onChange={(e) => setNewCatName(e.target.value)} /><button style={modalStyles.addBtn} onClick={addCategory}>+ Add Category</button></div>
+        
+        {/* إضافة Main Category */}
+        <div style={modalStyles.addRow}>
+          <input style={modalStyles.input} placeholder="New main category name..." value={newMainCatName} onChange={(e) => setNewMainCatName(e.target.value)} />
+          <button style={modalStyles.addBtn} onClick={addMainCategory}>+ Add Main Category</button>
+        </div>
+
+        {/* عرض Main Categories */}
         <div style={modalStyles.list}>
-          {categories.map(cat => (
-            <div key={cat.id} style={modalStyles.categoryCard}>
-              <div style={modalStyles.categoryHeader} onClick={() => setExpandedCat(expandedCat === cat.id ? null : cat.id)}>
-                <span style={modalStyles.arrow}>{expandedCat === cat.id ? '▼' : '▶'}</span><span style={modalStyles.catName}>{cat.name}</span><span style={modalStyles.itemCount}>({cat.items.length} items)</span>
-                <button style={modalStyles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteCategory(cat.id); }}>🗑️</button>
+          {mainCategories.map(mc => (
+            <div key={mc.id} style={modalStyles.categoryCard}>
+              {/* رأس Main Category */}
+              <div style={modalStyles.categoryHeader} onClick={() => setExpandedMainCat(expandedMainCat === mc.id ? null : mc.id)}>
+                <span style={modalStyles.arrow}>{expandedMainCat === mc.id ? '▼' : '▶'}</span>
+                {renamingMainCat === mc.id ? (
+                  <div style={{ display: 'flex', gap: 5, flex: 1 }} onClick={(e) => e.stopPropagation()}>
+                    <input style={{...modalStyles.input, padding: '4px 8px'}} value={renameMainCatName} onChange={(e) => setRenameMainCatName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRenameMainCat(mc.id); }} />
+                    <button style={modalStyles.addBtn} onClick={() => saveRenameMainCat(mc.id)}>✓</button>
+                  </div>
+                ) : (
+                  <span style={{...modalStyles.catName, fontSize: 20, color: '#d4a017'}}>{mc.name}</span>
+                )}
+                <span style={modalStyles.itemCount}>({mc.categories?.length || 0} sub-categories)</span>
+                <button style={{...modalStyles.statusBtn, background: '#3498db', marginRight: 5, fontSize: 11}} onClick={(e) => { e.stopPropagation(); startRenameMainCat(mc.id, mc.name); }}>✎</button>
+                <button style={modalStyles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteMainCategory(mc.id); }}>🗑️</button>
               </div>
-              {expandedCat === cat.id && (
-                <div style={modalStyles.itemsContainer}>
-                  {cat.items.map(item => (
-                    <div key={item.id} style={modalStyles.itemRow}>
-                      <span style={modalStyles.itemName}>{item.name}</span>
-                      {editingItem && editingItem.catId === cat.id && editingItem.itemId === item.id ? (
-                        <div style={{ display: 'flex', gap: 5, flex: 1 }}><input type="number" style={{ ...modalStyles.input, width: 60, padding: '4px 8px' }} value={editQty} onChange={(e) => setEditQty(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveEditItem(cat.id, item.id); }} /><button style={modalStyles.addBtn} onClick={() => saveEditItem(cat.id, item.id)}>✓</button></div>
-                      ) : (<span style={modalStyles.itemQty}>Qty: {item.qty}</span>)}
-                      {!editingItem && (<button style={{ ...modalStyles.statusBtn, background: '#3498db', marginRight: 5 }} onClick={() => startEditItem(cat.id, item.id, item.qty)}>✎</button>)}
-                      <button style={{ ...modalStyles.statusBtn, background: item.status === 'good' ? '#27ae60' : '#e74c3c' }} onClick={() => toggleStatus(cat.id, item.id, item.status)}>{item.status === 'good' ? 'Good' : 'Faulty'}</button>
-                      <button style={modalStyles.deleteBtn} onClick={() => deleteItem(cat.id, item.id)}>🗑️</button>
+
+              {/* محتويات Main Category */}
+              {expandedMainCat === mc.id && (
+                <div style={{ marginTop: 15, borderTop: '2px solid #d4a017', paddingTop: 15 }}>
+                  {/* إضافة فئة */}
+                  <div style={modalStyles.addRow}>
+                    <input style={modalStyles.input} placeholder="New category name..." value={newCatName[mc.id] || ''} onChange={(e) => setNewCatName({ ...newCatName, [mc.id]: e.target.value })} />
+                    <button style={modalStyles.addBtn} onClick={() => addCategory(mc.id)}>+ Add Category</button>
+                  </div>
+
+                  {/* عرض الفئات */}
+                  {mc.categories?.map(cat => (
+                    <div key={cat.id} style={{...modalStyles.categoryCard, background: '#fafafa', marginBottom: 10}}>
+                      <div style={modalStyles.categoryHeader} onClick={() => setExpandedCat(expandedCat === cat.id ? null : cat.id)}>
+                        <span style={modalStyles.arrow}>{expandedCat === cat.id ? '▼' : '▶'}</span>
+                        {renamingCat === `${mc.id}-${cat.id}` ? (
+                          <div style={{ display: 'flex', gap: 5, flex: 1 }} onClick={(e) => e.stopPropagation()}>
+                            <input style={{...modalStyles.input, padding: '4px 8px'}} value={renameCatName} onChange={(e) => setRenameCatName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRenameCat(mc.id, cat.id); }} />
+                            <button style={modalStyles.addBtn} onClick={() => saveRenameCat(mc.id, cat.id)}>✓</button>
+                          </div>
+                        ) : (
+                          <span style={modalStyles.catName}>{cat.name}</span>
+                        )}
+                        <span style={modalStyles.itemCount}>({cat.items?.length || 0} items)</span>
+                        <button style={{...modalStyles.statusBtn, background: '#3498db', marginRight: 5, fontSize: 11}} onClick={(e) => { e.stopPropagation(); startRenameCat(mc.id, cat.id, cat.name); }}>✎</button>
+                        <button style={modalStyles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteCategory(mc.id, cat.id); }}>🗑️</button>
+                      </div>
+
+                      {/* عرض الأغراض */}
+                      {expandedCat === cat.id && (
+                        <div style={modalStyles.itemsContainer}>
+                          {cat.items?.map(item => (
+                            <div key={item.id} style={modalStyles.itemRow}>
+                              <span style={modalStyles.itemName}>{item.name}</span>
+                              {editingItem && editingItem.itemId === item.id ? (
+                                <div style={{ display: 'flex', gap: 5, flex: 1 }}>
+                                  <input type="number" style={{ ...modalStyles.input, width: 60, padding: '4px 8px' }} value={editQty} onChange={(e) => setEditQty(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveEditItem(mc.id, cat.id, item.id); }} />
+                                  <button style={modalStyles.addBtn} onClick={() => saveEditItem(mc.id, cat.id, item.id)}>✓</button>
+                                </div>
+                              ) : (<span style={modalStyles.itemQty}>Qty: {item.qty}</span>)}
+                              {!editingItem && (<button style={{ ...modalStyles.statusBtn, background: '#3498db', marginRight: 5 }} onClick={() => startEditItem(mc.id, cat.id, item.id, item.qty)}>✎</button>)}
+                              <button style={{ ...modalStyles.statusBtn, background: item.status === 'good' ? '#27ae60' : '#e74c3c' }} onClick={() => toggleStatus(mc.id, cat.id, item.id, item.status)}>{item.status === 'good' ? 'Good' : 'Faulty'}</button>
+                              <button style={modalStyles.deleteBtn} onClick={() => deleteItem(mc.id, cat.id, item.id)}>🗑️</button>
+                            </div>
+                          ))}
+                          <div style={modalStyles.addItemRow}>
+                            <input style={{...modalStyles.input, flex: 2}} placeholder="Item name..." value={newItemName[`${mc.id}-${cat.id}`] || ''} onChange={(e) => setNewItemName({ ...newItemName, [`${mc.id}-${cat.id}`]: e.target.value })} />
+                            <input style={{...modalStyles.input, flex: 1}} type="number" placeholder="Qty..." value={newItemQty[`${mc.id}-${cat.id}`] || ''} onChange={(e) => setNewItemQty({ ...newItemQty, [`${mc.id}-${cat.id}`]: e.target.value })} />
+                            <button style={modalStyles.addBtn} onClick={() => addItem(mc.id, cat.id)}>+ Add</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
-                  <div style={modalStyles.addItemRow}>
-                    <input style={{...modalStyles.input, flex: 2}} placeholder="Item name..." value={newItemName[cat.id] || ''} onChange={(e) => setNewItemName({ ...newItemName, [cat.id]: e.target.value })} />
-                    <input style={{...modalStyles.input, flex: 1}} type="number" placeholder="Qty..." value={newItemQty[cat.id] || ''} onChange={(e) => setNewItemQty({ ...newItemQty, [cat.id]: e.target.value })} />
-                    <button style={modalStyles.addBtn} onClick={() => addItem(cat.id)}>+ Add</button>
-                  </div>
                 </div>
               )}
             </div>
@@ -185,21 +308,27 @@ function InventoryView({ title, icon, type, onBack }) {
   );
 }
 
-// ========== نافذة المسارح (الإصدار النهائي المُصلح) ==========
+// ========== نافذة المسارح (الإصدار مع Main Categories) ==========
 function TheatersView({ onBack }) {
   const [theaters, setTheaters] = useState([]);
   const [selectedTheaterId, setSelectedTheaterId] = useState(null);
   const [newTheaterName, setNewTheaterName] = useState('');
-  const [newCatName, setNewCatName] = useState('');
-  const [newItemName, setNewItemName] = useState('');
-  const [newItemQty, setNewItemQty] = useState('');
+  const [newMainCatName, setNewMainCatName] = useState('');
+  const [newCatName, setNewCatName] = useState({});
+  const [newItemName, setNewItemName] = useState({});
+  const [newItemQty, setNewItemQty] = useState({});
   const [newItemSource, setNewItemSource] = useState('warehouse');
+  const [expandedMainCat, setExpandedMainCat] = useState(null);
   const [expandedCat, setExpandedCat] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [editQty, setEditQty] = useState('');
   const [editDiff, setEditDiff] = useState(0);
   const [editMode, setEditMode] = useState(null);
   const [editTarget, setEditTarget] = useState('warehouse');
+  const [renamingMainCat, setRenamingMainCat] = useState(null);
+  const [renameMainCatName, setRenameMainCatName] = useState('');
+  const [renamingCat, setRenamingCat] = useState(null);
+  const [renameCatName, setRenameCatName] = useState('');
 
   useEffect(() => { fetchTheaters(); }, []);
 
@@ -207,8 +336,12 @@ function TheatersView({ onBack }) {
     const { data } = await supabase.from('theaters').select('id, name').order('id');
     if (data) {
       const theatersWithData = await Promise.all(data.map(async (theater) => {
-        const { data: cats } = await supabase.from('theater_categories').select('id, name, theater_items(id, name, qty, status)').eq('theater_id', theater.id).order('id');
-        return { ...theater, categories: cats || [] };
+        const { data: mainCats } = await supabase
+          .from('theater_main_categories')
+          .select('id, name, theater_categories(id, name, theater_items(id, name, qty, status))')
+          .eq('theater_id', theater.id)
+          .order('id');
+        return { ...theater, mainCategories: mainCats || [] };
       }));
       setTheaters(theatersWithData);
     }
@@ -226,112 +359,107 @@ function TheatersView({ onBack }) {
     const name = newTheaterName.trim();
     if (!name) return;
     const { data, error } = await supabase.from('theaters').insert({ name }).select('id, name').single();
-    if (!error && data) { setTheaters([...theaters, { id: data.id, name: data.name, categories: [] }]); setNewTheaterName(''); }
+    if (!error && data) {
+      setTheaters([...theaters, { id: data.id, name: data.name, mainCategories: [] }]);
+      setNewTheaterName('');
+    }
   };
 
   const deleteTheater = async (id) => { await supabase.from('theaters').delete().eq('id', id); setTheaters(theaters.filter(t => t.id !== id)); if (selectedTheaterId === id) setSelectedTheaterId(null); };
 
-  const addCategory = async () => {
-    const name = newCatName.trim();
+  const addMainCategory = async () => {
+    const name = newMainCatName.trim();
     if (!name || !selectedTheaterId) return;
-    const { data, error } = await supabase.from('theater_categories').insert({ theater_id: selectedTheaterId, name }).select('id, name').single();
-    if (!error && data) { setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, categories: [...t.categories, { id: data.id, name: data.name, items: [] }] } : t)); setNewCatName(''); }
+    const { data, error } = await supabase.from('theater_main_categories').insert({ theater_id: selectedTheaterId, name }).select('id, name').single();
+    if (!error && data) {
+      setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: [...t.mainCategories, { id: data.id, name: data.name, categories: [] }] } : t));
+      setNewMainCatName('');
+    }
   };
 
-  const deleteCategory = async (catId) => { await supabase.from('theater_categories').delete().eq('id', catId); setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, categories: t.categories.filter(c => c.id !== catId) } : t)); };
+  const deleteMainCategory = async (id) => {
+    await supabase.from('theater_main_categories').delete().eq('id', id);
+    setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.filter(mc => mc.id !== id) } : t));
+  };
+
+  const startRenameMainCat = (id, currentName) => { setRenamingMainCat(id); setRenameMainCatName(currentName); };
+  const saveRenameMainCat = async (id) => {
+    if (!renameMainCatName.trim()) return;
+    await supabase.from('theater_main_categories').update({ name: renameMainCatName }).eq('id', id);
+    setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => mc.id === id ? { ...mc, name: renameMainCatName } : mc) } : t));
+    setRenamingMainCat(null); setRenameMainCatName('');
+  };
+
+  const addCategory = async (mainCatId) => {
+    const name = newCatName[mainCatId]?.trim();
+    if (!name) return;
+    const { data, error } = await supabase.from('theater_categories').insert({ main_category_id: mainCatId, name }).select('id, name').single();
+    if (!error && data) {
+      setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: [...mc.categories, { id: data.id, name: data.name, items: [] }] } : mc) } : t));
+      setNewCatName({ ...newCatName, [mainCatId]: '' });
+    }
+  };
+
+  const deleteCategory = async (mainCatId, catId) => {
+    await supabase.from('theater_categories').delete().eq('id', catId);
+    setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.filter(c => c.id !== catId) } : mc) } : t));
+  };
+
+  const startRenameCat = (mainCatId, catId, currentName) => { setRenamingCat(`${mainCatId}-${catId}`); setRenameCatName(currentName); };
+  const saveRenameCat = async (mainCatId, catId) => {
+    if (!renameCatName.trim()) return;
+    await supabase.from('theater_categories').update({ name: renameCatName }).eq('id', catId);
+    setTheaters(theaters.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => mc.id === mainCatId ? { ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, name: renameCatName } : c) } : mc) } : t));
+    setRenamingCat(null); setRenameCatName('');
+  };
 
   const addItemToTheater = async () => {
-    const name = newItemName.trim();
-    const qty = parseInt(newItemQty);
+    const name = newItemName['theater']?.trim();
+    const qty = parseInt(newItemQty['theater']);
     const catId = expandedCat;
+    if (!name || !qty || qty < 1 || !catId) return;
 
-    if (!name || !qty || qty < 1) return;
-    if (!catId) {
-      alert('Please expand a category first to add items.');
-      return;
-    }
-
-    // إذا المصدر ويرهاوس، نخصم منه بعد التحقق
     if (newItemSource === 'warehouse') {
-      const { data: whItems } = await supabase
-        .from('items')
-        .select('id, qty, categories!inner(type)')
-        .eq('categories.type', 'warehouse')
-        .ilike('name', name);
-
-      if (!whItems || whItems.length === 0 || whItems[0].qty < qty) {
-        alert(`"${name}" not found in warehouse or insufficient quantity. Choose "Manual Entry" to add without deduction.`);
+      const { data: whItems } = await supabase.from('items').select('id, qty').eq('categories.type', 'warehouse').ilike('name', name);
+      if (whItems && whItems.length > 0 && whItems[0].qty >= qty) {
+        await supabase.from('items').update({ qty: whItems[0].qty - qty }).eq('id', whItems[0].id);
+      } else {
+        alert(`"${name}" not found in warehouse or insufficient quantity.`);
         return;
       }
-      await supabase.from('items').update({ qty: whItems[0].qty - qty }).eq('id', whItems[0].id);
     }
 
-    // إذا المصدر مسرح آخر، نخصم منه بعد التحقق
-    if (newItemSource.startsWith('theater_')) {
-      const sourceId = parseInt(newItemSource.replace('theater_', ''));
-      const { data: thItems } = await supabase
-        .from('theater_items')
-        .select('id, qty, theater_categories!inner(theater_id)')
-        .eq('theater_categories.theater_id', sourceId)
-        .ilike('name', name);
-
-      if (!thItems || thItems.length === 0 || thItems[0].qty < qty) {
-        alert(`"${name}" not found in source theater or insufficient quantity.`);
-        return;
-      }
-      await supabase.from('theater_items').update({ qty: thItems[0].qty - qty }).eq('id', thItems[0].id);
-    }
-
-    // إضافة الغرض للمسرح
-    const { data, error } = await supabase
-      .from('theater_items')
-      .insert({ theater_category_id: catId, name, qty, status: 'good' })
-      .select('id, name, qty, status')
-      .single();
-
-    if (error) {
-      console.error('Add item error:', error);
-      alert('Failed to add item. Please try again.');
-      return;
-    }
-
-    if (data) {
-      setTheaters(prev =>
-        prev.map(t =>
-          t.id === selectedTheaterId
-            ? {
-                ...t,
-                categories: t.categories.map(c =>
-                  c.id === catId
-                    ? { ...c, items: [...(c.items || []), data] }
-                    : c
-                ),
-              }
-            : t
-        )
-      );
-      setNewItemName('');
-      setNewItemQty('');
+    const { data, error } = await supabase.from('theater_items').insert({ theater_category_id: catId, name, qty, status: 'good' }).select('id, name, qty, status').single();
+    if (!error && data) {
+      setTheaters(prev => prev.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => ({ ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: [...(c.items || []), data] } : c) })) } : t));
+      setNewItemName({ ...newItemName, theater: '' });
+      setNewItemQty({ ...newItemQty, theater: '' });
       setNewItemSource('warehouse');
     }
   };
 
   const deleteItem = async (catId, itemId) => {
     const theater = theaters.find(t => t.id === selectedTheaterId);
-    const cat = theater?.categories?.find(c => c.id === catId);
-    const item = cat?.items?.find(i => i.id === itemId);
+    let item;
+    for (const mc of theater?.mainCategories || []) {
+      for (const c of mc.categories || []) {
+        item = c.items?.find(i => i.id === itemId);
+        if (item) break;
+      }
+      if (item) break;
+    }
     if (item) {
       const { data: whItems } = await supabase.from('items').select('id, qty').eq('categories.type', 'warehouse').ilike('name', item.name);
-      if (whItems && whItems.length > 0) await supabase.from('items').update({ qty: whItems[0].qty + item.qty }).eq('id', whItems[0].id);
+      if (whItems?.length > 0) await supabase.from('items').update({ qty: whItems[0].qty + item.qty }).eq('id', whItems[0].id);
     }
     await supabase.from('theater_items').delete().eq('id', itemId);
-    setTheaters(prev => prev.map(t => t.id === selectedTheaterId ? { ...t, categories: t.categories.map(c => c.id === catId ? { ...c, items: c.items.filter(i => i.id !== itemId) } : c) } : t));
+    setTheaters(prev => prev.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => ({ ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: c.items.filter(i => i.id !== itemId) } : c) })) } : t));
   };
 
   const toggleStatus = async (catId, itemId, currentStatus) => {
     const newStatus = currentStatus === 'good' ? 'faulty' : 'good';
     await supabase.from('theater_items').update({ status: newStatus }).eq('id', itemId);
-    setTheaters(prev => prev.map(t => t.id === selectedTheaterId ? { ...t, categories: t.categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, status: newStatus } : i) } : c) } : t));
+    setTheaters(prev => prev.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => ({ ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, status: newStatus } : i) } : c) })) } : t));
   };
 
   const startEditItem = (catId, itemId, currentQty) => { setEditingItem({ catId, itemId }); setEditQty(currentQty.toString()); setEditDiff(0); setEditMode(null); setEditTarget('warehouse'); };
@@ -340,8 +468,14 @@ function TheatersView({ onBack }) {
     setEditQty(val);
     if (!editingItem) return;
     const theater = theaters.find(t => t.id === selectedTheaterId);
-    const cat = theater?.categories?.find(c => c.id === editingItem.catId);
-    const item = cat?.items?.find(i => i.id === editingItem.itemId);
+    let item;
+    for (const mc of theater?.mainCategories || []) {
+      for (const c of mc.categories || []) {
+        item = c.items?.find(i => i.id === editingItem.itemId);
+        if (item) break;
+      }
+      if (item) break;
+    }
     if (!item) return;
     const diff = (parseInt(val) || 0) - item.qty;
     setEditDiff(diff);
@@ -352,21 +486,25 @@ function TheatersView({ onBack }) {
     const newQty = parseInt(editQty);
     if (isNaN(newQty) || newQty < 0) return;
     const theater = theaters.find(t => t.id === selectedTheaterId);
-    const cat = theater?.categories?.find(c => c.id === catId);
-    const item = cat?.items?.find(i => i.id === itemId);
+    let item;
+    for (const mc of theater?.mainCategories || []) {
+      for (const c of mc.categories || []) {
+        item = c.items?.find(i => i.id === itemId);
+        if (item) break;
+      }
+      if (item) break;
+    }
     if (!item) return;
     const diff = newQty - item.qty;
-
     if (diff > 0 && editTarget === 'warehouse') {
       const { data: whItems } = await supabase.from('items').select('id, qty').eq('categories.type', 'warehouse').ilike('name', item.name);
-      if (whItems && whItems.length > 0) await supabase.from('items').update({ qty: whItems[0].qty - diff }).eq('id', whItems[0].id);
+      if (whItems?.length > 0) await supabase.from('items').update({ qty: whItems[0].qty - diff }).eq('id', whItems[0].id);
     } else if (diff < 0 && editTarget === 'warehouse') {
       const { data: whItems } = await supabase.from('items').select('id, qty').eq('categories.type', 'warehouse').ilike('name', item.name);
-      if (whItems && whItems.length > 0) await supabase.from('items').update({ qty: whItems[0].qty + Math.abs(diff) }).eq('id', whItems[0].id);
+      if (whItems?.length > 0) await supabase.from('items').update({ qty: whItems[0].qty + Math.abs(diff) }).eq('id', whItems[0].id);
     }
-
     await supabase.from('theater_items').update({ qty: newQty }).eq('id', itemId);
-    setTheaters(prev => prev.map(t => t.id === selectedTheaterId ? { ...t, categories: t.categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, qty: newQty } : i) } : c) } : t));
+    setTheaters(prev => prev.map(t => t.id === selectedTheaterId ? { ...t, mainCategories: t.mainCategories.map(mc => ({ ...mc, categories: mc.categories.map(c => c.id === catId ? { ...c, items: c.items.map(i => i.id === itemId ? { ...i, qty: newQty } : i) } : c) })) } : t));
     setEditingItem(null); setEditQty(''); setEditDiff(0); setEditMode(null);
   };
 
@@ -374,10 +512,13 @@ function TheatersView({ onBack }) {
     const theater = theaters.find(t => t.name === theaterName);
     if (!theater) return;
     let htmlContent = '';
-    theater.categories.forEach(cat => {
-      htmlContent += `<h2>${cat.name} (${cat.items.length} items)</h2><table><tr><th>Name</th><th>Qty</th><th>Status</th></tr>`;
-      cat.items.forEach(item => { htmlContent += `<tr><td>${item.name}</td><td>${item.qty}</td><td class="${item.status === 'good' ? 'good' : 'faulty'}">${item.status === 'good' ? 'Good' : 'Faulty'}</td></tr>`; });
-      htmlContent += '</table>';
+    theater.mainCategories.forEach(mc => {
+      htmlContent += `<h1>${mc.name}</h1>`;
+      mc.categories.forEach(cat => {
+        htmlContent += `<h2>${cat.name} (${cat.items.length} items)</h2><table><tr><th>Name</th><th>Qty</th><th>Status</th></tr>`;
+        cat.items.forEach(item => { htmlContent += `<tr><td>${item.name}</td><td>${item.qty}</td><td class="${item.status === 'good' ? 'good' : 'faulty'}">${item.status === 'good' ? 'Good' : 'Faulty'}</td></tr>`; });
+        htmlContent += '</table>';
+      });
     });
     exportToPDF(theaterName, htmlContent);
   };
@@ -390,7 +531,7 @@ function TheatersView({ onBack }) {
         <div style={{ display: 'flex', gap: 15, flexWrap: 'wrap', marginTop: 20 }}>
           {theaters.map(theater => (
             <div key={theater.id} style={{ ...mainStyles.card, minWidth: 200, cursor: 'pointer' }} onClick={() => setSelectedTheaterId(theater.id)}>
-              <div style={mainStyles.cardIcon}>🎭</div><h3 style={mainStyles.cardTitle}>{theater.name}</h3><p style={mainStyles.cardSub}>{theater.categories?.length || 0} categories</p>
+              <div style={mainStyles.cardIcon}>🎭</div><h3 style={mainStyles.cardTitle}>{theater.name}</h3><p style={mainStyles.cardSub}>{theater.mainCategories?.length || 0} main categories</p>
               <button style={{...modalStyles.deleteBtn, fontSize: 12, marginTop: 10}} onClick={(e) => { e.stopPropagation(); deleteTheater(theater.id); }}>🗑️ Delete</button>
             </div>
           ))}
@@ -399,7 +540,7 @@ function TheatersView({ onBack }) {
     );
   }
 
-  if (!selectedTheater || !selectedTheater.categories) {
+  if (!selectedTheater || !selectedTheater.mainCategories) {
     return (
       <div style={modalStyles.overlay}><div style={modalStyles.container}>
         <div style={modalStyles.header}><button style={modalStyles.backBtn} onClick={() => setSelectedTheaterId(null)}>← Theaters</button><h2 style={modalStyles.title}>🎭 Loading...</h2></div>
@@ -411,34 +552,70 @@ function TheatersView({ onBack }) {
   return (
     <div style={modalStyles.overlay}><div style={modalStyles.container}>
       <div style={modalStyles.header}><button style={modalStyles.backBtn} onClick={() => setSelectedTheaterId(null)}>← Theaters</button><h2 style={modalStyles.title}>🎭 {selectedTheater.name}</h2><button style={modalStyles.pdfBtn} onClick={() => handleExportPDF(selectedTheater.name)}>📄 PDF</button></div>
-      <div style={modalStyles.addRow}><input style={modalStyles.input} placeholder="New category..." value={newCatName} onChange={(e) => setNewCatName(e.target.value)} /><button style={modalStyles.addBtn} onClick={addCategory}>+ Add Category</button></div>
+      <div style={modalStyles.addRow}><input style={modalStyles.input} placeholder="New main category..." value={newMainCatName} onChange={(e) => setNewMainCatName(e.target.value)} /><button style={modalStyles.addBtn} onClick={addMainCategory}>+ Add Main Category</button></div>
       <div style={modalStyles.list}>
-        {selectedTheater.categories.map(cat => (
-          <div key={cat.id} style={modalStyles.categoryCard}>
-            <div style={modalStyles.categoryHeader} onClick={() => setExpandedCat(expandedCat === cat.id ? null : cat.id)}>
-              <span style={modalStyles.arrow}>{expandedCat === cat.id ? '▼' : '▶'}</span><span style={modalStyles.catName}>{cat.name}</span><span style={modalStyles.itemCount}>({cat.items?.length || 0} items)</span>
-              <button style={modalStyles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteCategory(cat.id); }}>🗑️</button>
+        {selectedTheater.mainCategories.map(mc => (
+          <div key={mc.id} style={modalStyles.categoryCard}>
+            <div style={modalStyles.categoryHeader} onClick={() => setExpandedMainCat(expandedMainCat === mc.id ? null : mc.id)}>
+              <span style={modalStyles.arrow}>{expandedMainCat === mc.id ? '▼' : '▶'}</span>
+              {renamingMainCat === mc.id ? (
+                <div style={{ display: 'flex', gap: 5, flex: 1 }} onClick={(e) => e.stopPropagation()}>
+                  <input style={{...modalStyles.input, padding: '4px 8px'}} value={renameMainCatName} onChange={(e) => setRenameMainCatName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRenameMainCat(mc.id); }} />
+                  <button style={modalStyles.addBtn} onClick={() => saveRenameMainCat(mc.id)}>✓</button>
+                </div>
+              ) : (
+                <span style={{...modalStyles.catName, fontSize: 20, color: '#d4a017'}}>{mc.name}</span>
+              )}
+              <span style={modalStyles.itemCount}>({mc.categories?.length || 0} sub-categories)</span>
+              <button style={{...modalStyles.statusBtn, background: '#3498db', marginRight: 5, fontSize: 11}} onClick={(e) => { e.stopPropagation(); startRenameMainCat(mc.id, mc.name); }}>✎</button>
+              <button style={modalStyles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteMainCategory(mc.id); }}>🗑️</button>
             </div>
-            {expandedCat === cat.id && (
-              <div style={modalStyles.itemsContainer}>
-                {cat.items?.map(item => (
-                  <div key={item.id} style={modalStyles.itemRow}>
-                    <span style={modalStyles.itemName}>{item.name}</span>
-                    {editingItem && editingItem.catId === cat.id && editingItem.itemId === item.id ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
-                        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}><input type="number" style={{ ...modalStyles.input, width: 60, padding: '4px 8px' }} value={editQty} onChange={(e) => handleQtyChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveEditItem(cat.id, item.id); }} /><button style={modalStyles.addBtn} onClick={() => saveEditItem(cat.id, item.id)}>✓</button></div>
-                        {editMode && (<div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}><span style={{ fontSize: 11, color: '#555' }}>{editMode === 'increase' ? `⚠️ +${editDiff} from:` : `↩️ ${Math.abs(editDiff)} to:`}</span><select style={{ ...modalStyles.input, width: 'auto', padding: '4px 8px', fontSize: 11 }} value={editTarget} onChange={(e) => setEditTarget(e.target.value)}>{sourceOptions.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select></div>)}
+            {expandedMainCat === mc.id && (
+              <div style={{ marginTop: 15, borderTop: '2px solid #d4a017', paddingTop: 15 }}>
+                <div style={modalStyles.addRow}>
+                  <input style={modalStyles.input} placeholder="New category..." value={newCatName[mc.id] || ''} onChange={(e) => setNewCatName({ ...newCatName, [mc.id]: e.target.value })} />
+                  <button style={modalStyles.addBtn} onClick={() => addCategory(mc.id)}>+ Add Category</button>
+                </div>
+                {mc.categories?.map(cat => (
+                  <div key={cat.id} style={{...modalStyles.categoryCard, background: '#fafafa', marginBottom: 10}}>
+                    <div style={modalStyles.categoryHeader} onClick={() => setExpandedCat(expandedCat === cat.id ? null : cat.id)}>
+                      <span style={modalStyles.arrow}>{expandedCat === cat.id ? '▼' : '▶'}</span>
+                      {renamingCat === `${mc.id}-${cat.id}` ? (
+                        <div style={{ display: 'flex', gap: 5, flex: 1 }} onClick={(e) => e.stopPropagation()}>
+                          <input style={{...modalStyles.input, padding: '4px 8px'}} value={renameCatName} onChange={(e) => setRenameCatName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRenameCat(mc.id, cat.id); }} />
+                          <button style={modalStyles.addBtn} onClick={() => saveRenameCat(mc.id, cat.id)}>✓</button>
+                        </div>
+                      ) : (
+                        <span style={modalStyles.catName}>{cat.name}</span>
+                      )}
+                      <span style={modalStyles.itemCount}>({cat.items?.length || 0} items)</span>
+                      <button style={{...modalStyles.statusBtn, background: '#3498db', marginRight: 5, fontSize: 11}} onClick={(e) => { e.stopPropagation(); startRenameCat(mc.id, cat.id, cat.name); }}>✎</button>
+                      <button style={modalStyles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteCategory(mc.id, cat.id); }}>🗑️</button>
+                    </div>
+                    {expandedCat === cat.id && (
+                      <div style={modalStyles.itemsContainer}>
+                        {cat.items?.map(item => (
+                          <div key={item.id} style={modalStyles.itemRow}>
+                            <span style={modalStyles.itemName}>{item.name}</span>
+                            {editingItem && editingItem.itemId === item.id ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+                                <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}><input type="number" style={{ ...modalStyles.input, width: 60, padding: '4px 8px' }} value={editQty} onChange={(e) => handleQtyChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveEditItem(cat.id, item.id); }} /><button style={modalStyles.addBtn} onClick={() => saveEditItem(cat.id, item.id)}>✓</button></div>
+                                {editMode && (<div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}><span style={{ fontSize: 11, color: '#555' }}>{editMode === 'increase' ? `⚠️ +${editDiff} from:` : `↩️ ${Math.abs(editDiff)} to:`}</span><select style={{ ...modalStyles.input, width: 'auto', padding: '4px 8px', fontSize: 11 }} value={editTarget} onChange={(e) => setEditTarget(e.target.value)}>{sourceOptions.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select></div>)}
+                              </div>
+                            ) : (<span style={modalStyles.itemQty}>Qty: {item.qty}</span>)}
+                            {!editingItem && (<button style={{ ...modalStyles.statusBtn, background: '#3498db', marginRight: 5 }} onClick={() => startEditItem(cat.id, item.id, item.qty)}>✎</button>)}
+                            <button style={{ ...modalStyles.statusBtn, background: item.status === 'good' ? '#27ae60' : '#e74c3c' }} onClick={() => toggleStatus(cat.id, item.id, item.status)}>{item.status === 'good' ? 'Good' : 'Faulty'}</button>
+                            <button style={modalStyles.deleteBtn} onClick={() => deleteItem(cat.id, item.id)}>🗑️</button>
+                          </div>
+                        ))}
+                        <div style={{...modalStyles.addItemRow, flexDirection: 'column', gap: 8}}>
+                          <div style={{ display: 'flex', gap: 8 }}><input style={{...modalStyles.input, flex: 2}} placeholder="Item name..." value={newItemName['theater'] || ''} onChange={(e) => setNewItemName({ ...newItemName, theater: e.target.value })} /><input style={{...modalStyles.input, flex: 1}} type="number" placeholder="Qty..." value={newItemQty['theater'] || ''} onChange={(e) => setNewItemQty({ ...newItemQty, theater: e.target.value })} /></div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 13, color: '#555' }}>Source:</span><select style={{...modalStyles.input, flex: 1}} value={newItemSource} onChange={(e) => setNewItemSource(e.target.value)}>{sourceOptions.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select><button style={modalStyles.addBtn} onClick={addItemToTheater}>+ Add</button></div>
+                        </div>
                       </div>
-                    ) : (<span style={modalStyles.itemQty}>Qty: {item.qty}</span>)}
-                    {!editingItem && (<button style={{ ...modalStyles.statusBtn, background: '#3498db', marginRight: 5 }} onClick={() => startEditItem(cat.id, item.id, item.qty)}>✎</button>)}
-                    <button style={{ ...modalStyles.statusBtn, background: item.status === 'good' ? '#27ae60' : '#e74c3c' }} onClick={() => toggleStatus(cat.id, item.id, item.status)}>{item.status === 'good' ? 'Good' : 'Faulty'}</button>
-                    <button style={modalStyles.deleteBtn} onClick={() => deleteItem(cat.id, item.id)}>🗑️</button>
+                    )}
                   </div>
                 ))}
-                <div style={{...modalStyles.addItemRow, flexDirection: 'column', gap: 8}}>
-                  <div style={{ display: 'flex', gap: 8 }}><input style={{...modalStyles.input, flex: 2}} placeholder="Item name..." value={newItemName} onChange={(e) => setNewItemName(e.target.value)} /><input style={{...modalStyles.input, flex: 1}} type="number" placeholder="Qty..." value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} /></div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ fontSize: 13, color: '#555' }}>Source:</span><select style={{...modalStyles.input, flex: 1}} value={newItemSource} onChange={(e) => setNewItemSource(e.target.value)}>{sourceOptions.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}</select><button style={modalStyles.addBtn} onClick={addItemToTheater}>+ Add</button></div>
-                </div>
               </div>
             )}
           </div>
@@ -458,7 +635,7 @@ function RepairView({ onBack }) {
     const { data: warehouse } = await supabase.from('items').select('id, name, qty').eq('status', 'faulty');
     const { data: theater } = await supabase.from('theater_items').select('id, name, qty, theater_categories!inner(theaters!inner(name))').eq('status', 'faulty');
     const all = [];
-    basic?.forEach(i => all.push({ ...i, location: 'Basic Store', source: 'basic' }));
+    basic?.forEach(i => all.push({ ...i, location: 'KAS INVENTORY', source: 'basic' }));
     warehouse?.forEach(i => all.push({ ...i, location: 'Warehouse', source: 'warehouse' }));
     theater?.forEach(i => all.push({ ...i, location: i.theater_categories?.theaters?.name || 'Unknown Theater', source: 'theater' }));
     setFaultyItems(all);
@@ -537,7 +714,7 @@ export default function App() {
   const handleBack = () => { setCurrentView(null); fetchCounts(); };
 
   if (loading) return <SplashScreen />;
-  if (currentView === 'basicStore') return <InventoryView title="Basic Store" icon="🏢" type="basic" onBack={handleBack} />;
+  if (currentView === 'basicStore') return <InventoryView title="KAS INVENTORY" icon="🏢" type="basic" onBack={handleBack} />;
   if (currentView === 'warehouse') return <InventoryView title="Warehouse" icon="🏭" type="warehouse" onBack={handleBack} />;
   if (currentView === 'theaters') return <TheatersView onBack={handleBack} />;
   if (currentView === 'repair') return <RepairView onBack={handleBack} />;
